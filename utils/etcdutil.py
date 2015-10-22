@@ -10,23 +10,23 @@ DEFAULT_RECO = True
 _etcd_client_settings = {"protocol": DEFAULT_PROTOCOL}
 
 
-def get_docker_settings():
+def get_etcd_settings():
     global _etcd_client_settings
     return _etcd_client_settings
 
 
-def reset_docker_settings():
+def reset_etcd_settings():
     global _etcd_client_settings
     _etcd_client_settings = {"protocol": DEFAULT_PROTOCOL}
 
 
-def set_docker_settings(init_config, instance):
+def set_etcd_settings(config):
     global _etcd_client_settings
     _etcd_client_settings = {
-        'host': init_config.get('host', DEFAULT_HOST),
-        'port': instance.get('port', DEFAULT_PORT),
-        'allow_reconnect': instance.get('allow_reconnect', DEFAULT_RECO),
-        'protocol': instance.get('protocol', DEFAULT_PROTOCOL),
+        'host': config.get('host', DEFAULT_HOST),
+        'port': config.get('port', DEFAULT_PORT),
+        'allow_reconnect': config.get('allow_reconnect', DEFAULT_RECO),
+        'protocol': config.get('protocol', DEFAULT_PROTOCOL),
     }
 
 
