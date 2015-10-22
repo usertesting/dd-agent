@@ -33,12 +33,14 @@ UNIX_CONFIG_PATH = '/etc/dd-agent'
 MAC_CONFIG_PATH = '/opt/datadog-agent/etc'
 DEFAULT_CHECK_FREQUENCY = 15   # seconds
 LOGGING_MAX_BYTES = 5 * 1024 * 1024
+SD_BACKENDS = ['etcd']
+SD_TEMPLATE_DIR = '/datadog/checks'
 
 log = logging.getLogger(__name__)
 
 OLD_STYLE_PARAMETERS = [
     ('apache_status_url', "apache"),
-    ('cacti_mysql_server' , "cacti"),
+    ('cacti_mysql_server', "cacti"),
     ('couchdb_server', "couchdb"),
     ('elasticsearch', "elasticsearch"),
     ('haproxy_url', "haproxy"),
@@ -90,7 +92,7 @@ def get_parsed_args():
         # Ignore parse errors
         options, args = Values({'autorestart': False,
                                 'dd_url': None,
-                                'disable_dd':False,
+                                'disable_dd': False,
                                 'use_forwarder': False,
                                 'profile': False}), []
     return options, args
@@ -114,6 +116,7 @@ def get_url_endpoint(default_url, endpoint_type='app'):
             get_version().replace(".", "-"),
             endpoint_type))
 
+
 def skip_leading_wsp(f):
     "Works on a file, returns a file-like object"
     return StringIO("\n".join(map(string.strip, f.readlines())))
@@ -131,9 +134,9 @@ def _windows_commondata_path():
 
     _SHGetFolderPath = windll.shell32.SHGetFolderPathW
     _SHGetFolderPath.argtypes = [wintypes.HWND,
-                                ctypes.c_int,
-                                wintypes.HANDLE,
-                                wintypes.DWORD, wintypes.LPCWSTR]
+                                 ctypes.c_int,
+                                 wintypes.HANDLE,
+                                 wintypes.DWORD, wintypes.LPCWSTR]
 
     path_buf = wintypes.create_unicode_buffer(wintypes.MAX_PATH)
     result = _SHGetFolderPath(0, CSIDL_COMMON_APPDATA, 0, 0, path_buf)
@@ -246,7 +249,8 @@ def get_config_path(cfg_path=None, os_name=None):
         pass
 
     # If all searches fail, exit the agent with an error
-    sys.stderr.write("Please supply a configuration file at %s or in the directory where the Agent is currently deployed.\n" % bad_path)
+    sys.stderr.write("Please supply a configuration file at %s or in the directory where "
+                     "the Agent is currently deployed.\n" % bad_path)
     sys.exit(3)
 
 
@@ -281,6 +285,7 @@ def get_histogram_aggregates(configstr=None):
 
     return result
 
+
 def get_histogram_percentiles(configstr=None):
     if configstr is None:
         return None
@@ -296,16 +301,17 @@ def get_histogram_percentiles(configstr=None):
                     raise ValueError
                 if len(val) > 4:
                     log.warning("Histogram percentiles are rounded to 2 digits: {0} rounded"
-                        .format(floatval))
+                                .format(floatval))
                 result.append(float(val[0:4]))
             except ValueError:
                 log.warning("Bad histogram percentile value {0}, must be float in ]0;1[, skipping"
-                    .format(val))
+                            .format(val))
     except Exception:
         log.exception("Error when parsing histogram percentiles, skipping")
         return None
 
     return result
+
 
 def get_config(parse_args=True, cfg_path=None, options=None):
     if parse_args:
@@ -347,7 +353,6 @@ def get_config(parse_args=True, cfg_path=None, options=None):
             agentConfig[option] = config.get('Main', option)
 
         # Store developer mode setting in the agentConfig
-        in_developer_mode = None
         if config.has_option('Main', 'developer_mode'):
             agentConfig['developer_mode'] = _is_affirmative(config.get('Main', 'developer_mode'))
 
@@ -387,6 +392,23 @@ def get_config(parse_args=True, cfg_path=None, options=None):
             agentConfig['use_dogstatsd'] = config.get('Main', 'use_dogstatsd').lower() in ("yes", "true")
         else:
             agentConfig['use_dogstatsd'] = True
+
+        # Service discovery
+        if config.has_option('Main', 'service_discovery_backend'):
+            backend = config.get('Main', 'service_discovery_backend')
+            if backend in SD_BACKENDS:
+                agentConfig['service_discovery'] = True
+                agentConfig['sd_backend'] = backend
+                if config.has_option('Main', 'backend_template_dir'):
+                    agentConfig['sd_template_dir'] = config.get(
+                        'Main',
+                        'backend_template_dir',
+                    )
+                else:
+                    agentConfig['sd_template_dir'] = SD_TEMPLATE_DIR
+            else:
+                log.error("The backend {0} is not supported. "
+                          "Service discovery won't be enabled.".format(backend))
 
         # Concerns only Windows
         if config.has_option('Main', 'use_web_info_page'):
@@ -613,10 +635,11 @@ def set_win32_cert_path():
     else:
         cur_path = os.path.dirname(__file__)
         crt_path = os.path.join(cur_path, 'packaging', 'datadog-agent', 'win32',
-                'install_files', 'ca-certificates.crt')
+                                'install_files', 'ca-certificates.crt')
     import tornado.simple_httpclient
     log.info("Windows certificate path: %s" % crt_path)
     tornado.simple_httpclient._DEFAULT_CA_CERTS = crt_path
+
 
 def get_confd_path(osname=None):
     if not osname:
@@ -695,13 +718,12 @@ def get_ssl_certificate(osname, filename):
         if os.path.exists(path):
             return path
 
-
     log.info("Certificate file NOT found at %s" % str(path))
     return None
 
+
 def check_yaml(conf_path):
     f = open(conf_path)
-    check_name = os.path.basename(conf_path).split('.')[0]
     try:
         check_config = yaml.load(f.read(), Loader=yLoader)
         assert 'init_config' in check_config, "No 'init_config' section found"
@@ -727,6 +749,7 @@ def load_check_directory(agentConfig, hostname):
     ''' Return the initialized checks from checks.d, and a mapping of checks that failed to
     initialize. Only checks that have a configuration
     file in conf.d will be returned. '''
+
     from checks import AgentCheck, AGENT_METRICS_CHECK_NAME
 
     initialized_checks = {}
@@ -734,7 +757,7 @@ def load_check_directory(agentConfig, hostname):
     deprecated_checks = {}
     agentConfig['checksd_hostname'] = hostname
 
-    deprecated_configs_enabled = [v for k,v in OLD_STYLE_PARAMETERS if len([l for l in agentConfig if l.startswith(k)]) > 0]
+    deprecated_configs_enabled = [v for k, v in OLD_STYLE_PARAMETERS if len([l for l in agentConfig if l.startswith(k)]) > 0]
     for deprecated_config in deprecated_configs_enabled:
         msg = "Configuring %s in datadog.conf is not supported anymore. Please use conf.d" % deprecated_config
         deprecated_checks[deprecated_config] = {'error': msg, 'traceback': None}
@@ -753,14 +776,22 @@ def load_check_directory(agentConfig, hostname):
     try:
         confd_path = get_confd_path(osname)
     except PathNotFound, e:
-        log.error("No conf.d folder found at '%s' or in the directory where the Agent is currently deployed.\n" % e.args[0])
+        log.error("No conf.d folder found at '%s' or in the directory where "
+                  "the Agent is currently deployed.\n" % e.args[0])
         sys.exit(3)
+
+    if agentConfig.get('service_discovery'):
+        from service_discovery.docker_discovery import get_configs
+        docker_configs = get_configs(agentConfig)
+    else:
+        docker_configs = {}
 
     # We don't support old style configs anymore
     # So we iterate over the files in the checks.d directory
     # If there is a matching configuration file in the conf.d directory
     # then we import the check
     for check in itertools.chain(*checks_paths):
+        docker_init_config, docker_instances, skip_config_lookup = None, None, False
         check_name = os.path.basename(check).split('.')[0]
         check_config = None
         if check_name in initialized_checks or check_name in init_failed_checks:
@@ -774,39 +805,47 @@ def load_check_directory(agentConfig, hostname):
         if os.path.exists(conf_path):
             conf_exists = True
         else:
-            log.debug("No configuration file for %s. Looking for defaults" % check_name)
+            log.debug("No configuration file for %s. Looking for auto config or defaults" % check_name)
 
             # Default checks read their config from the "[CHECKNAME].yaml.default" file
             default_conf_path = os.path.join(confd_path, '%s.yaml.default' % check_name)
             if not os.path.exists(default_conf_path):
-                log.debug("Default configuration file {0} is missing. Skipping check".format(default_conf_path))
-                continue
+                if check_name not in docker_configs:
+                    log.debug("Default configuration file {0} is missing. "
+                              "Skipping check".format(default_conf_path))
+                    continue
+                else:
+                    docker_init_config, docker_instances = docker_configs[check_name]
+                    check_config = {'init_config': docker_init_config, 'instances': docker_instances}
+                    skip_config_lookup = True
+
             conf_path = default_conf_path
             conf_exists = True
 
-        if conf_exists:
-            try:
-                check_config = check_yaml(conf_path)
-            except Exception, e:
-                log.exception("Unable to parse yaml config in %s" % conf_path)
-                traceback_message = traceback.format_exc()
-                init_failed_checks[check_name] = {'error': str(e), 'traceback': traceback_message}
-                continue
-        else:
-            # Compatibility code for the Nagios checks if it's still configured
-            # in datadog.conf
-            # FIXME: 6.x, should be removed
-            if check_name == 'nagios':
-                if any([nagios_key in agentConfig for nagios_key in NAGIOS_OLD_CONF_KEYS]):
-                    log.warning("Configuring Nagios in datadog.conf is deprecated "
-                                "and will be removed in a future version. "
-                                "Please use conf.d")
-                    check_config = {'instances':[dict((key, agentConfig[key]) for key in agentConfig if key in NAGIOS_OLD_CONF_KEYS)]}
-                else:
+        if not skip_config_lookup:
+            if conf_exists:
+                try:
+                    check_config = check_yaml(conf_path)
+                except Exception, e:
+                    log.exception("Unable to parse yaml config in %s" % conf_path)
+                    traceback_message = traceback.format_exc()
+                    init_failed_checks[check_name] = {'error': str(e), 'traceback': traceback_message}
                     continue
             else:
-                log.debug("No configuration file for %s" % check_name)
-                continue
+                # Compatibility code for the Nagios checks if it's still configured
+                # in datadog.conf
+                # FIXME: 6.x, should be removed
+                if check_name == 'nagios':
+                    if any([nagios_key in agentConfig for nagios_key in NAGIOS_OLD_CONF_KEYS]):
+                        log.warning("Configuring Nagios in datadog.conf is deprecated "
+                                    "and will be removed in a future version. "
+                                    "Please use conf.d")
+                        check_config = {'instances': [dict((key, agentConfig[key]) for key in agentConfig if key in NAGIOS_OLD_CONF_KEYS)]}
+                    else:
+                        continue
+                else:
+                    log.debug("No configuration file for %s" % check_name)
+                    continue
 
         # If we are here, there is a valid matching configuration file.
         # Let's try to import the check
@@ -815,7 +854,7 @@ def load_check_directory(agentConfig, hostname):
         except Exception, e:
             traceback_message = traceback.format_exc()
             # There is a configuration file for that check but the module can't be imported
-            init_failed_checks[check_name] = {'error':e, 'traceback':traceback_message}
+            init_failed_checks[check_name] = {'error': e, 'traceback': traceback_message}
             log.exception('Unable to import check module %s.py from checks.d' % check_name)
             continue
 
@@ -862,7 +901,7 @@ def load_check_directory(agentConfig, hostname):
         except Exception, e:
             log.exception('Unable to initialize check %s' % check_name)
             traceback_message = traceback.format_exc()
-            init_failed_checks[check_name] = {'error':e, 'traceback':traceback_message}
+            init_failed_checks[check_name] = {'error': e, 'traceback': traceback_message}
         else:
             initialized_checks[check_name] = c
 
@@ -878,8 +917,8 @@ def load_check_directory(agentConfig, hostname):
     init_failed_checks.update(deprecated_checks)
     log.info('initialized checks.d checks: %s' % [k for k in initialized_checks.keys() if k != AGENT_METRICS_CHECK_NAME])
     log.info('initialization failed checks.d checks: %s' % init_failed_checks.keys())
-    return {'initialized_checks':initialized_checks.values(),
-            'init_failed_checks':init_failed_checks,
+    return {'initialized_checks': initialized_checks.values(),
+            'init_failed_checks': init_failed_checks,
             }
 
 
@@ -980,7 +1019,6 @@ def get_logging_config(cfg_path=None):
     return logging_config
 
 
-
 def initialize_logging(logger_name):
     try:
         logging_config = get_logging_config()
@@ -1029,7 +1067,7 @@ def initialize_logging(logger_name):
         if get_os() == 'windows' and logging_config['log_to_event_viewer']:
             try:
                 from logging.handlers import NTEventLogHandler
-                nt_event_handler = NTEventLogHandler(logger_name,get_win32service_file('windows', 'win32service.pyd'), 'Application')
+                nt_event_handler = NTEventLogHandler(logger_name, get_win32service_file('windows', 'win32service.pyd'), 'Application')
                 nt_event_handler.setFormatter(logging.Formatter(get_syslog_format(logger_name), get_log_date_format()))
                 nt_event_handler.setLevel(logging.ERROR)
                 app_log = logging.getLogger(logger_name)
