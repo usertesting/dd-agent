@@ -25,9 +25,9 @@ def _get_port(container_inspect):
     return container_inspect['NetworkSettings']['Ports'].keys()[0].split("/")[0]
 
 
-CHECK_MAPPING = {
+CHECK_LIST = [
     'redis'
-}
+]
 
 
 VAR_MAPPING = {
@@ -149,8 +149,8 @@ def get_configs(agentConfig):
     configs = {}
 
     for image, cid in containers.iteritems():
-        if image in CHECK_MAPPING:
-            conf = CHECK_MAPPING[image](agentConfig, docker_client, cid)
+        if image in CHECK_LIST:
+            conf = _get_check_config(agentConfig, docker_client, cid)
         else:
             conf = _get_default_config(docker_client, cid)
         if conf is not None:
