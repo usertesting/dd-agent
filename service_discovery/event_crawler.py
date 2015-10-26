@@ -16,7 +16,7 @@ def crawl_docker_events(from_ts):
     now = int(time.time())
     events = client.events(since=from_ts, until=now, decode=True)
     for ev in events:
-        if ev.status in CONFIG_RELOAD_STATUS:
+        if ev.get('status') in CONFIG_RELOAD_STATUS:
             should_reload_conf = True
             break
     return should_reload_conf
