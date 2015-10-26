@@ -10,7 +10,7 @@
     (C) Datadog, Inc. 2010-2014 all rights reserved
 '''
 # set up logging before importing any other components
-from config import get_version, initialize_logging # noqa
+from config import get_version, initialize_logging  # noqa
 initialize_logging('collector')
 
 # stdlib
@@ -39,6 +39,7 @@ from util import (
     get_hostname,
     Watchdog,
 )
+from service_discovery.event_crawler import crawl_docker_events
 from utils.flare import configcheck, Flare
 from utils.jmx import jmx_command
 from utils.pidfile import PidFile
@@ -48,6 +49,7 @@ from utils.profile import AgentProfiler
 PID_NAME = "dd-agent"
 WATCHDOG_MULTIPLIER = 10
 RESTART_INTERVAL = 4 * 24 * 60 * 60  # Defaults to 4 days
+SERVICE_DISCOVERY_INTERVAL = 30  # defaults to 30 seconds
 START_COMMANDS = ['start', 'restart', 'foreground']
 DD_AGENT_COMMANDS = ['check', 'flare', 'jmx']
 
@@ -160,6 +162,11 @@ class Agent(Daemon):
         self.restart_interval = int(self._agentConfig.get('restart_interval', RESTART_INTERVAL))
         self.agent_start = time.time()
 
+        # Initialize the service discovery interval
+        self.service_discovery_interval = int(agentConfig.get(
+            'service_discovery_interval', SERVICE_DISCOVERY_INTERVAL))
+        self.last_service_discovery = None
+
         profiled = False
         collector_profiled_runs = 0
 
@@ -194,6 +201,10 @@ class Agent(Daemon):
             # Check if we should restart.
             if self.autorestart and self._should_restart():
                 self._do_restart()
+
+            # Check if we should run service discovery.
+            if self._should_discover_services():
+                self._do_service_discovery()
 
             # Only plan for next loop if we will continue, otherwise exit quickly.
             if self.run_forever:
@@ -249,6 +260,25 @@ class Agent(Daemon):
             self.collector.stop()
         sys.exit(AgentSupervisor.RESTART_EXIT_STATUS)
 
+    def _should_discover_services(self):
+        """Check if the service discovery should run based on the last run timestamp."""
+        if self.last_service_discovery is None or \
+           int(time.time() - self.last_service_discovery) > self.service_discovery_interval:
+            return True
+        return False
+
+    def _do_service_discovery(self):
+        """Run the docker events crawler and call `reload_configs` if needed"""
+        log.info('Running the service discovery.')
+        should_reload_conf = False
+        if self.last_service_discovery is not None:
+            should_reload_conf = crawl_docker_events(from_ts=int(self.last_service_discovery))
+        else:
+            should_reload_conf = True
+        if should_reload_conf:
+            self.log.info('Found docker events affecting checks.')
+            self.last_service_discovery = time.time()
+            self.reload_configs()
 
 def main():
     options, args = get_parsed_args()
