@@ -3,8 +3,8 @@ from etcd import Client
 
 
 DEFAULT_HOST = '127.0.0.1'
-DEFAULT_PORT = 4003
-DEFAULT_PROTOCOL = 'https'
+DEFAULT_PORT = 4001
+DEFAULT_PROTOCOL = 'http'
 DEFAULT_RECO = True
 
 _etcd_client_settings = {"protocol": DEFAULT_PROTOCOL}

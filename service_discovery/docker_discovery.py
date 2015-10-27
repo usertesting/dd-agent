@@ -4,9 +4,9 @@ from os import path
 
 import logging
 import simplejson as json
-from urllib3.exceptions import TimeoutError
+
 # project
-import utils.dockerutil.get_client as get_docker_client
+from utils.dockerutil import get_client as get_docker_client
 
 
 log = logging.getLogger(__name__)
@@ -25,30 +25,49 @@ def _get_port(container_inspect):
     return container_inspect['NetworkSettings']['Ports'].keys()[0].split("/")[0]
 
 
-CHECK_LIST = [
-    'redis'
+def _get_nginx_status_url(container_inspect):
+    """Build the nginx status url from a docker inspect object."""
+    host, ports = _get_host(container_inspect), container_inspect['NetworkSettings']['Ports'].keys()
+    if '80/tcp' in ports:
+        pass
+    else:
+        try:
+            ports.remove('443/tcp')
+        except ValueError:
+            pass
+        host = '%s:%s' % (host, ports[0].split('/')[0])
+    return 'http://{0}/nginx_status'.format(host)
+
+
+IMAGE_AND_CHECK = [
+    ('redis', 'redisdb'),
+    ('nginx', 'nginx'),
 ]
 
 
 VAR_MAPPING = {
     'host': _get_host,
     'port': _get_port,
+    'nginx_status_url': _get_nginx_status_url,
 }
 
 
 def _get_etcd_check_tpl(prefix, key, **kwargs):
     """Retrieve template config strings from etcd."""
-    import utils.etcdutil.get_client as get_etcd_client
+    from utils.etcdutil import get_client as get_etcd_client
     etcd_client = get_etcd_client()
     try:
         init_config_tpl = etcd_client.read(
-            path.join(prefix, key, 'template', 'init_config'), timeout=kwargs.get('timeout', DEFAULT_TIMEOUT))
+            path.join(prefix, key, 'template', 'init_config'),
+            timeout=kwargs.get('timeout', DEFAULT_TIMEOUT)).value
         instance_tpl = etcd_client.read(
-            path.join(prefix, key, 'template', 'instance'), timeout=kwargs.get('timeout', DEFAULT_TIMEOUT))
+            path.join(prefix, key, 'template', 'instance'),
+            timeout=kwargs.get('timeout', DEFAULT_TIMEOUT)).value
         variables = etcd_client.read(
-            path.join(prefix, key, 'variables'), timeout=kwargs.get('timeout', DEFAULT_TIMEOUT))
+            path.join(prefix, key, 'variables'),
+            timeout=kwargs.get('timeout', DEFAULT_TIMEOUT)).value
         template = [init_config_tpl, instance_tpl, variables]
-    except (KeyError, TimeoutError):
+    except:
         log.error('Fetching the value for {0} in etcd failed, auto-config for this check failed.'.format(key))
         return None
     return template
@@ -93,8 +112,12 @@ def _render_template(init_config_tpl, instance_tpl, variables):
 def _get_check_config(agentConfig, docker_client, c_id):
     """Create a base config for simple checks from a template and data pulled from docker."""
     inspect = docker_client.inspect_container(c_id)
-    check_name = inspect['Name'].lstrip('/')
-    template_config = _get_template_config()
+    image_name = inspect['Config']['Image']
+    for image, check in IMAGE_AND_CHECK:
+        if image == image_name:
+            check_name = check
+            break
+    template_config = _get_template_config(agentConfig, check_name)
     if template_config is None:
         return None
     init_config_tpl, instance_tpl, variables = template_config
@@ -148,8 +171,8 @@ def get_configs(agentConfig):
     containers = [(container.get('Image').split(':')[0], container.get('Id')) for container in docker_client.containers()]
     configs = {}
 
-    for image, cid in containers.iteritems():
-        if image in CHECK_LIST:
+    for image, cid in containers:
+        if image in [elem[0] for elem in IMAGE_AND_CHECK]:
             conf = _get_check_config(agentConfig, docker_client, cid)
         else:
             conf = _get_default_config(docker_client, cid)

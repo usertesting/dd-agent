@@ -100,7 +100,7 @@ use_mount: no
 #
 # Settings for connecting to the service discovery backend.
 # backend_host: 127.0.0.1
-# backend_port: 4003
+# backend_port: 4001
 #
 # By default, the agent will look for the configuration templates under the
 # `/datadog/checks` key in the back-end. If you wish otherwise, uncomment this option

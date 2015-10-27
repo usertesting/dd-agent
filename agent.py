@@ -163,7 +163,7 @@ class Agent(Daemon):
         self.agent_start = time.time()
 
         # Initialize the service discovery interval
-        self.service_discovery_interval = int(agentConfig.get(
+        self.service_discovery_interval = int(self._agentConfig.get(
             'service_discovery_interval', SERVICE_DISCOVERY_INTERVAL))
         self.last_service_discovery = None
 
@@ -276,7 +276,6 @@ class Agent(Daemon):
         else:
             should_reload_conf = True
         if should_reload_conf:
-            self.log.info('Found docker events affecting checks.')
             self.last_service_discovery = time.time()
             self.reload_configs()
 
