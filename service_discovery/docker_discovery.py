@@ -48,7 +48,6 @@ IMAGE_AND_CHECK = [
 VAR_MAPPING = {
     'host': _get_host,
     'port': _get_port,
-    'nginx_status_url': _get_nginx_status_url,
 }
 
 
@@ -155,19 +154,18 @@ def _get_default_config(docker_client, c_id):
         init_config = json.loads(conf["init_config"])
         del conf["init_config"]
 
-    if "instances" in conf:
-        instances = json.loads(conf["instances"])
-
+    if "instance" in conf:
+        instances = [json.loads(conf["instance"])]
     else:
-        instances = [{k: v} for k, v in conf.iteritems()]
+        instances = [{k: v} for k, v in conf.iteritems() if k != 'init_config']
 
-        return (check_name, init_config, instances)
+    return (check_name, init_config, instances)
 
 
 def get_configs(agentConfig):
     """Get the config for all docker containers running on the host."""
     docker_client = get_docker_client()
-
+    # TODO: handle containers with the same image (create multiple instances in the check config)
     containers = [(container.get('Image').split(':')[0], container.get('Id')) for container in docker_client.containers()]
     configs = {}
 
