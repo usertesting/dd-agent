@@ -25,23 +25,17 @@ def _get_port(container_inspect):
     return container_inspect['NetworkSettings']['Ports'].keys()[0].split("/")[0]
 
 
-def _get_nginx_status_url(container_inspect):
-    """Build the nginx status url from a docker inspect object."""
-    host, ports = _get_host(container_inspect), container_inspect['NetworkSettings']['Ports'].keys()
-    if '80/tcp' in ports:
-        pass
-    else:
-        try:
-            ports.remove('443/tcp')
-        except ValueError:
-            pass
-        host = '%s:%s' % (host, ports[0].split('/')[0])
-    return 'http://{0}/nginx_status'.format(host)
-
+def _get_explicit_variable(container_inspect, var):
+    """Extract the value of a config variable from env variables or docker labels.
+       Return None if the variable is not found."""
+    conf = _get_config_space(container_inspect['Config'])
+    if conf is not None:
+        return conf.get(var)
 
 IMAGE_AND_CHECK = [
     ('redis', 'redisdb'),
     ('nginx', 'nginx'),
+    ('mongo', 'mongo'),
 ]
 
 
@@ -101,8 +95,9 @@ def _render_template(init_config_tpl, instance_tpl, variables):
             if key in variables and PLACEHOLDER_REGEX.match(tpl[key]):
                 tpl[key] = variables[key]
             else:
-                log.error('Failed to find a value for the {0} parameter.'
-                          ' The check might not be configured properly.'.format(key))
+                log.warning('Failed to find a value for the {0} parameter.'
+                            ' The check might not be configured properly.'.format(key))
+                tpl[key] = ''
     # put the `instance` config in a list to respect the `instances` format
     config[1] = [config[1]]
     return config
@@ -125,27 +120,32 @@ def _get_check_config(agentConfig, docker_client, c_id):
         if v in VAR_MAPPING:
             var_values[v] = VAR_MAPPING[v](inspect)
         else:
-            log.warning("Variable {0} not found in VAR_MAPPING. Won't be able to"
-                        " replace it in the template config of the {1} check.".format(v, check_name))
+            var_values[v] = _get_explicit_variable(inspect, v)
     init_config, instances = _render_template(init_config_tpl, instance_tpl, var_values)
     return (check_name, init_config, instances)
+
+
+def _get_config_space(container_conf):
+    """Check whether the user config was provided through env variables or container labels.
+       Return this config after removing its `datadog_` prefix."""
+    env_variables = {v.split("=")[0].split("datadog_")[1]: v.split("=")[1] for v in container_conf['Env'] if v.split("=")[0].startswith("datadog_")}
+    labels = {k.split('datadog_')[1]: v for k, v in container_conf['Labels'].iteritems() if k.startswith("datadog_")}
+
+    if "check_name" in env_variables:
+        return env_variables
+    elif 'check_name' in labels:
+        return labels
+    else:
+        return None
 
 
 def _get_default_config(docker_client, c_id):
     """Get a config stored in env variables or container labels for a container."""
     check_name = None
     init_config, instances = None, None
-    env_variables, labels = None, None
-    container_conf = docker_client.inspect_container(c_id)['Config']
-    # We look for a user-provided config in env variables and the container's labels
-    env_variables = {v.split("=")[0].split("datadog_")[1]: v.split("=")[1] for v in container_conf['Env'] if v.split("=")[0].startswith("datadog_")}
-    labels = {k.split('datadog_')[1]: v for k, v in container_conf['Labels'].iteritems() if k.startswith("datadog_")}
-
-    if "check_name" in env_variables:
-        conf = env_variables
-    elif 'check_name' in labels:
-        conf = labels
-    else:
+    conf = _get_config_space(docker_client.inspect_container(c_id)['Config'])
+    if conf is None:
+        log.warning('No default config was found for the container %s' % c_id)
         return None
     check_name = conf["check_name"]
     del conf["check_name"]
@@ -157,7 +157,7 @@ def _get_default_config(docker_client, c_id):
     if "instance" in conf:
         instances = [json.loads(conf["instance"])]
     else:
-        instances = [{k: v} for k, v in conf.iteritems() if k != 'init_config']
+        instances = [{k: v} for k, v in conf.iteritems()]
 
     return (check_name, init_config, instances)
 
