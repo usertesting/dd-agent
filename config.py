@@ -34,7 +34,8 @@ MAC_CONFIG_PATH = '/opt/datadog-agent/etc'
 DEFAULT_CHECK_FREQUENCY = 15   # seconds
 LOGGING_MAX_BYTES = 5 * 1024 * 1024
 SD_BACKENDS = ['etcd']
-SD_TEMPLATE_DIR = '/datadog/checks'
+SD_TEMPLATE_DIR = '/datadog/check_configs'
+SD_AUTO_CONFIG = '/datadog/_auto_config'
 
 log = logging.getLogger(__name__)
 
@@ -399,6 +400,7 @@ def get_config(parse_args=True, cfg_path=None, options=None):
             if backend in SD_BACKENDS:
                 agentConfig['service_discovery'] = True
                 agentConfig['sd_backend'] = backend
+                agentConfig['sd_autoconfig_dir'] = SD_AUTO_CONFIG
                 if config.has_option('Main', 'backend_template_dir'):
                     agentConfig['sd_template_dir'] = config.get(
                         'Main',
