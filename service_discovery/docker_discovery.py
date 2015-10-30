@@ -102,8 +102,7 @@ def _render_template(init_config_tpl, instance_tpl, variables):
                     log.warning('Failed to find a value for the {0} parameter.'
                                 ' The check might not be configured properly.'.format(key))
                     tpl[key].replace(var, '')
-    # put the `instance` config in a list to respect the `instances` format
-    config[1] = [config[1]]
+    config[1] = config[1]
     return config
 
 
@@ -167,6 +166,13 @@ def get_configs(agentConfig):
             conf = None
         if conf is not None:
             check_name = check_name if check_name is not None else conf[0]
-            configs[check_name] = (conf[1], conf[2])
+            # build instances list if needed
+            if configs.get(check_name) is None:
+                configs[check_name] = (conf[1], [conf[2]])
+            else:
+                if configs[check_name][0] != conf[1]:
+                    log.warning('different versions of `init_config` found for check {0}.'
+                                ' Keeping the first one found.'.format(check_name))
+                configs[check_name][1].append(conf[2])
 
     return configs
