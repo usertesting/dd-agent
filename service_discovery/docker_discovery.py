@@ -12,7 +12,7 @@ from utils.dockerutil import get_client as get_docker_client
 log = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 5
-PLACEHOLDER_REGEX = re.compile(r'%%.+%%')
+PLACEHOLDER_REGEX = re.compile(r'%%.+?%%')
 
 
 def _get_host(container_inspect):
@@ -51,37 +51,40 @@ def _get_etcd_check_tpl(prefix, key, **kwargs):
     etcd_client = get_etcd_client()
     try:
         init_config_tpl = etcd_client.read(
-            path.join(prefix, key, 'template', 'init_config'),
+            path.join(prefix, key, 'init_config'),
             timeout=kwargs.get('timeout', DEFAULT_TIMEOUT)).value
         instance_tpl = etcd_client.read(
-            path.join(prefix, key, 'template', 'instance'),
+            path.join(prefix, key, 'instance'),
             timeout=kwargs.get('timeout', DEFAULT_TIMEOUT)).value
-        variables = etcd_client.read(
-            path.join(prefix, key, 'variables'),
-            timeout=kwargs.get('timeout', DEFAULT_TIMEOUT)).value
-        template = [init_config_tpl, instance_tpl, variables]
+        template = [init_config_tpl, instance_tpl]
     except:
         log.error('Fetching the value for {0} in etcd failed, auto-config for this check failed.'.format(key))
         return None
     return template
 
 
-def _get_template_config(agentConfig, check_name):
+def _get_template_config(agentConfig, config_key, auto_config=False):
     """Extract a template config from a K/V store and returns it as a dict object."""
     # TODO: add more backends
     if agentConfig.get('sd_backend') == 'etcd':
-        etcd_tpl = _get_etcd_check_tpl(agentConfig.get('sd_template_dir'), check_name)
-        if etcd_tpl is not None and len(etcd_tpl) == 3 and all(etcd_tpl):
-            init_config_tpl, instance_tpl, variables = etcd_tpl
+        if auto_config is True:
+            prefix = agentConfig.get('sd_autoconfig_dir')
+        else:
+            prefix = agentConfig.get('sd_template_dir')
+        etcd_tpl = _get_etcd_check_tpl(prefix, config_key)
+        if etcd_tpl is not None and len(etcd_tpl) == 2 and all(etcd_tpl):
+            init_config_tpl, instance_tpl = etcd_tpl
         else:
             return None
     try:
+        # build a list of all variables to replace in the template
+        variables = PLACEHOLDER_REGEX.findall(init_config_tpl) + PLACEHOLDER_REGEX.findall(instance_tpl)
+        variables = map(lambda x: x.strip('%'), variables)
         init_config_tpl = json.loads(init_config_tpl)
         instance_tpl = json.loads(instance_tpl)
-        variables = json.loads(variables)
     except json.JSONDecodeError:
         log.error('Failed to decode the JSON template fetched from {0}.'
-                  'Auto-config for {1} failed.'.format(agentConfig.get('sd_backend'), check_name))
+                  'Auto-config for {1} failed.'.format(agentConfig.get('sd_backend'), config_key))
         return None
     return [init_config_tpl, instance_tpl, variables]
 
@@ -92,26 +95,29 @@ def _render_template(init_config_tpl, instance_tpl, variables):
     config = [init_config_tpl, instance_tpl]
     for tpl in config:
         for key in tpl:
-            if key in variables and PLACEHOLDER_REGEX.match(tpl[key]):
-                tpl[key] = variables[key]
-            else:
-                log.warning('Failed to find a value for the {0} parameter.'
-                            ' The check might not be configured properly.'.format(key))
-                tpl[key] = ''
+            for var in PLACEHOLDER_REGEX.findall(str(tpl[key])):
+                if var.strip('%') in variables and variables[var.strip('%')]:
+                    tpl[key] = tpl[key].replace(var, variables[var.strip('%')])
+                else:
+                    log.warning('Failed to find a value for the {0} parameter.'
+                                ' The check might not be configured properly.'.format(key))
+                    tpl[key].replace(var, '')
     # put the `instance` config in a list to respect the `instances` format
     config[1] = [config[1]]
     return config
 
 
-def _get_check_config(agentConfig, docker_client, c_id):
-    """Create a base config for simple checks from a template and data pulled from docker."""
+def _get_check_config(agentConfig, docker_client, c_id, config_key=None):
+    """Retrieve a configuration template and fill it with data pulled from docker."""
     inspect = docker_client.inspect_container(c_id)
-    image_name = inspect['Config']['Image']
-    for image, check in IMAGE_AND_CHECK:
-        if image == image_name:
-            check_name = check
-            break
-    template_config = _get_template_config(agentConfig, check_name)
+    auto_config = config_key is None
+    if config_key is None:
+        image_name = inspect['Config']['Image']
+        for image, check in IMAGE_AND_CHECK:
+            if image == image_name:
+                config_key = check
+                break
+    template_config = _get_template_config(agentConfig, config_key, auto_config=auto_config)
     if template_config is None:
         return None
     init_config_tpl, instance_tpl, variables = template_config
@@ -122,7 +128,7 @@ def _get_check_config(agentConfig, docker_client, c_id):
         else:
             var_values[v] = _get_explicit_variable(inspect, v)
     init_config, instances = _render_template(init_config_tpl, instance_tpl, var_values)
-    return (check_name, init_config, instances)
+    return (config_key, init_config, instances)
 
 
 def _get_config_space(container_conf):
@@ -139,42 +145,28 @@ def _get_config_space(container_conf):
         return None
 
 
-def _get_default_config(docker_client, c_id):
-    """Get a config stored in env variables or container labels for a container."""
-    check_name = None
-    init_config, instances = None, None
-    conf = _get_config_space(docker_client.inspect_container(c_id)['Config'])
-    if conf is None:
-        log.warning('No default config was found for the container %s' % c_id)
-        return None
-    check_name = conf["check_name"]
-    del conf["check_name"]
-
-    if "init_config" in conf:
-        init_config = json.loads(conf["init_config"])
-        del conf["init_config"]
-
-    if "instance" in conf:
-        instances = [json.loads(conf["instance"])]
-    else:
-        instances = [{k: v} for k, v in conf.iteritems()]
-
-    return (check_name, init_config, instances)
-
-
 def get_configs(agentConfig):
     """Get the config for all docker containers running on the host."""
     docker_client = get_docker_client()
     # TODO: handle containers with the same image (create multiple instances in the check config)
-    containers = [(container.get('Image').split(':')[0], container.get('Id')) for container in docker_client.containers()]
-    configs = {}
+    containers = [(container.get('Image').split(':')[0], container.get('Id'), container.get('Labels')) for container in docker_client.containers()]
+    check_name, configs = None, {}
 
-    for image, cid in containers:
-        if image in [elem[0] for elem in IMAGE_AND_CHECK]:
+    for image, cid, labels in containers:
+        # first, let's check if the labels specify a config key
+        config_key = labels.get('datadog_config_key')
+        check_name = labels.get('datadog_check_name')
+        if config_key:
+            conf = _get_check_config(agentConfig, docker_client, cid, config_key)
+        elif image in [elem[0] for elem in IMAGE_AND_CHECK]:
+            log.info(
+                'datadog_config_key not found for container {0}, attempting auto-configuration.'.format(cid))
             conf = _get_check_config(agentConfig, docker_client, cid)
         else:
-            conf = _get_default_config(docker_client, cid)
+            log.warning('Container {0} was not recognized by auto-config, leaving it alone.'.format(cid))
+            conf = None
         if conf is not None:
-            configs[conf[0]] = (conf[1], conf[2])
+            check_name = check_name if check_name is not None else conf[0]
+            configs[check_name] = (conf[1], conf[2])
 
     return configs
