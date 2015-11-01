@@ -13,9 +13,9 @@ NET_ERRORS = "net_errors"
 DISK = "disk"
 
 METRICS = [
-    ("kubernetes.memory.usage", MEM),
-    ("kubernetes.filesystem.usage", FS),
-    ("kubernetes.filesystem.usage_pct", FS),
+    ('kubernetes.memory.usage', MEM),
+    ('kubernetes.filesystem.usage', FS),
+    ('kubernetes.filesystem.usage_pct', FS),
     ('kubernetes.cpu.usage.total', CPU),
     ('kubernetes.network.tx_bytes', NET),
     ('kubernetes.network.rx_bytes', NET),
