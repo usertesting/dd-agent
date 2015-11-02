@@ -239,14 +239,13 @@ class MongoDb(AgentCheck):
 
     """
     WIREDTIGER_METRICS = {
-
-        "wiredTiger.cache.bytes currently in the cache": GAUGE,
-        "wiredTiger.cache.failed eviction of pages that exceeded the in-memory maximum": GAUGE,
+        "wiredTiger.cache.bytes currently in the cache": (GAUGE, "wiredTiger.cache.bytes_currently_in_cache"),  # noqa
+        "wiredTiger.cache.failed eviction of pages that exceeded the in-memory maximum": (GAUGE, "wiredTiger.cache.failed_eviction_of_pages_exceeding_the_in-memory_maximum"),  # noqa
         "wiredTiger.cache.in-memory page splits": GAUGE,
         "wiredTiger.cache.maximum bytes configured": GAUGE,
         "wiredTiger.cache.maximum page size at eviction": GAUGE,
-        "wiredTiger.cache.pages currently held in the cache": GAUGE,
-        "wiredTiger.cache.pages evicted because they exceeded the in-memory maximum": GAUGE,
+        "wiredTiger.cache.pages currently held in the cache": (GAUGE, "wiredTiger.cache.pages_currently_held_in_cache"),  # noqa
+        "wiredTiger.cache.pages evicted because they exceeded the in-memory maximum": (GAUGE, "wiredTiger.cache.pages_evicted_exceeding_the_in-memory_maximum"),  # noqa
         "wiredTiger.cache.pages evicted by application threads": GAUGE,
         "wiredTiger.concurrentTransactions.read.available": GAUGE,
         "wiredTiger.concurrentTransactions.read.out": GAUGE,
