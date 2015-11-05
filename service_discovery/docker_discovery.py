@@ -45,9 +45,13 @@ VAR_MAPPING = {
 }
 
 
-def _get_etcd_check_tpl(prefix, key, **kwargs):
+def _get_etcd_check_tpl(agentConfig, prefix, key, **kwargs):
     """Retrieve template config strings from etcd."""
     from utils.etcdutil import get_client as get_etcd_client
+    from utils.etcdutil import set_etcd_settings
+    host, port = agentConfig.get('sd_backend_host'), agentConfig.get('sd_backend_port')
+    settings = {'host': host, 'port': port} if host and port else {}
+    set_etcd_settings(settings)
     etcd_client = get_etcd_client()
     try:
         init_config_tpl = etcd_client.read(
@@ -71,7 +75,7 @@ def _get_template_config(agentConfig, config_key, auto_config=False):
             prefix = agentConfig.get('sd_autoconfig_dir')
         else:
             prefix = agentConfig.get('sd_template_dir')
-        etcd_tpl = _get_etcd_check_tpl(prefix, config_key)
+        etcd_tpl = _get_etcd_check_tpl(agentConfig, prefix, config_key)
         if etcd_tpl is not None and len(etcd_tpl) == 2 and all(etcd_tpl):
             init_config_tpl, instance_tpl = etcd_tpl
         else:

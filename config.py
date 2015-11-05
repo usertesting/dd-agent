@@ -403,11 +403,15 @@ def get_config(parse_args=True, cfg_path=None, options=None):
                 agentConfig['sd_autoconfig_dir'] = SD_AUTO_CONFIG
                 if config.has_option('Main', 'backend_template_dir'):
                     agentConfig['sd_template_dir'] = config.get(
-                        'Main',
-                        'backend_template_dir',
-                    )
+                        'Main', 'backend_template_dir')
                 else:
                     agentConfig['sd_template_dir'] = SD_TEMPLATE_DIR
+                if config.has_option('Main', 'sd_backend_host'):
+                    agentConfig['sd_backend_host'] = config.get(
+                        'Main', 'sd_backend_host')
+                if config.has_option('Main', 'sd_backend_port'):
+                    agentConfig['sd_backend_port'] = config.get(
+                        'Main', 'sd_backend_port')
             else:
                 log.error("The backend {0} is not supported. "
                           "Service discovery won't be enabled.".format(backend))
