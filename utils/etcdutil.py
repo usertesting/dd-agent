@@ -24,7 +24,7 @@ def set_etcd_settings(config):
     global _etcd_client_settings
     _etcd_client_settings = {
         'host': config.get('host', DEFAULT_HOST),
-        'port': config.get('port', DEFAULT_PORT),
+        'port': int(config.get('port', DEFAULT_PORT)),
         'allow_reconnect': config.get('allow_reconnect', DEFAULT_RECO),
         'protocol': config.get('protocol', DEFAULT_PROTOCOL),
     }

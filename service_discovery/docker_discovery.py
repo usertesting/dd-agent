@@ -10,6 +10,7 @@ from utils.dockerutil import get_client as get_docker_client
 
 
 log = logging.getLogger(__name__)
+docker_client = None
 
 DEFAULT_TIMEOUT = 5
 PLACEHOLDER_REGEX = re.compile(r'%%.+?%%')
@@ -17,12 +18,25 @@ PLACEHOLDER_REGEX = re.compile(r'%%.+?%%')
 
 def _get_host(container_inspect):
     """Extract the host IP from a docker inspect object."""
-    return container_inspect['NetworkSettings']['IPAddress']
+    global docker_client
+    ip_addr = container_inspect['NetworkSettings']['IPAddress']
+    if not ip_addr:
+        # kubernetes case
+        c_id = container_inspect.get('Id')
+        task_id = docker_client.exec_create(c_id, 'hostname -I').get('Id')
+        ip_addr = docker_client.exec_start(task_id).strip()
+    return ip_addr
 
 
 def _get_port(container_inspect):
     """Extract the port from a docker inspect object."""
-    return container_inspect['NetworkSettings']['Ports'].keys()[0].split("/")[0]
+    port = None
+    try:
+        port = container_inspect['NetworkSettings']['Ports'].keys()[0].split("/")[0]
+    except:
+        # kubernetes case
+        port = container_inspect['Config']['ExposedPorts'].keys()[0].split("/")[0]
+    return port
 
 
 def _get_explicit_variable(container_inspect, var):
@@ -122,8 +136,9 @@ def _render_template(init_config_tpl, instance_tpl, variables):
     return config
 
 
-def _get_check_config(agentConfig, docker_client, c_id, image):
+def _get_check_config(agentConfig, c_id, image):
     """Retrieve a configuration template and fill it with data pulled from docker."""
+    global docker_client
     inspect = docker_client.inspect_container(c_id)
     template_config = _get_template_config(agentConfig, image)
     if template_config is None:
@@ -155,13 +170,14 @@ def _get_config_space(container_conf):
 
 def get_configs(agentConfig):
     """Get the config for all docker containers running on the host."""
+    global docker_client
     docker_client = get_docker_client()
     # TODO: handle containers with the same image (create multiple instances in the check config)
     containers = [(container.get('Image').split(':')[0], container.get('Id'), container.get('Labels')) for container in docker_client.containers()]
     configs = {}
 
     for image, cid, labels in containers:
-        conf = _get_check_config(agentConfig, docker_client, cid, image)
+        conf = _get_check_config(agentConfig, cid, image)
         if conf is not None:
             check_name = conf[0]
             # build instances list if needed
