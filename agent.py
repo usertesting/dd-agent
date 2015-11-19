@@ -39,11 +39,11 @@ from util import (
     get_hostname,
     Watchdog,
 )
-from service_discovery.event_crawler import crawl_docker_events
 from utils.flare import configcheck, Flare
 from utils.jmx import jmx_command
 from utils.pidfile import PidFile
 from utils.profile import AgentProfiler
+from utils.service_discovery.event_crawler import crawl_docker_events
 
 # Constants
 PID_NAME = "dd-agent"

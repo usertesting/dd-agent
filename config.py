@@ -787,7 +787,7 @@ def load_check_directory(agentConfig, hostname):
         sys.exit(3)
 
     if agentConfig.get('service_discovery'):
-        from service_discovery.docker_discovery import get_configs
+        from utils.service_discovery.docker_discovery import get_configs
         docker_configs = get_configs(agentConfig)
     else:
         docker_configs = {}
