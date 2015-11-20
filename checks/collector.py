@@ -201,7 +201,8 @@ class Collector(object):
             'proc': w32.Processes(log),
             'memory': w32.Memory(log),
             'network': w32.Network(log),
-            'cpu': w32.Cpu(log)
+            'cpu': w32.Cpu(log),
+            'system': u.System(log)
         }
 
         # Old-style metric checks

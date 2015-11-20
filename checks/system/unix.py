@@ -14,6 +14,9 @@ from util import get_hostname
 from utils.platform import Platform
 from utils.subprocess_output import get_subprocess_output
 
+# 3rd party
+import uptime
+
 # locale-resilient float converter
 to_float = lambda s: float(s.replace(",", "."))
 
@@ -211,12 +214,7 @@ class IO(Check):
 
 class System(Check):
     def check(self, agentConfig):
-        if Platform.is_linux():
-            with open("/proc/uptime", "r") as f:
-                uptime_seconds = float(f.readline().split()[0])
-            return {"system.uptime": uptime_seconds}
-        return {}
-
+        return {"system.uptime": uptime.uptime()}
 
 class Load(Check):
 
