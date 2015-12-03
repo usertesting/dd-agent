@@ -314,3 +314,4 @@ class ProcessCheck(AgentCheck):
             tags=tag,
             message=message_str % (status_str[status], nb_procs, name)
         )
+
