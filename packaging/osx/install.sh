@@ -64,10 +64,12 @@ if egrep 'api_key:( APIKEY)?$' "/opt/datadog-agent/etc/datadog.conf" > /dev/null
     $sudo_cmd chown $real_user:admin "/opt/datadog-agent/etc/datadog.conf"
     $sudo_cmd chmod 640 /opt/datadog-agent/etc/datadog.conf
     printf "\033[34m* Restarting the Agent...\n\033[0m\n"
-    $cmd_real_user "/opt/datadog-agent/bin/datadog-agent" restart >/dev/null
 else
     printf "\033[34m\n* Keeping old datadog.conf configuration file\n\033[0m\n"
 fi
+
+$cmd_real_user "/opt/datadog-agent/bin/datadog-agent" stop
+$cmd_real_user "/opt/datadog-agent/bin/datadog-agent" start
 
 # Starting the app
 $cmd_real_user open -a 'Datadog Agent.app'
